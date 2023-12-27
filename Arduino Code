@@ -1,0 +1,204 @@
+// Define stepper motor connections:
+#include <AccelStepper.h>
+#include <EEPROM.h>
+//for PAN Motor
+#define P_dirPin 5
+#define P_stepPin 6
+
+//Interrupt
+
+const int buttonPin = 7;
+
+//for Tilt Motor
+#define T_dirPin1 2
+#define T_stepPin1 3
+
+// Dynamic constants
+
+#define S_FACTOR_PAN 74.074074
+#define S_FACTOR_TILT 27.089947
+
+//sPEED FACTORS
+#define SPEED_FACTOR_TILT 0.01
+#define SPEED_FACTOR_PAN  0.01
+
+long int count_T=0;
+long int count_P=0;
+long int speed_pan=0;
+long int speed_tilt=0;
+
+//Functions--------------------------------------------------------------------------------------------
+
+int rotate(float tilt,float pan){
+ 
+ long int tilt_r=(int)(tilt* S_FACTOR_TILT);
+ long int pan_r=(int)(pan * S_FACTOR_PAN);
+ int tilt_t=0;
+ int pan_t=0;
+ long int r_end;
+long int mid_pan_r; 
+long int mid_tilt_r; 
+
+mid_pan_r  =  0.5 * pan_r;
+mid_tilt_r = tilt_r /2;
+
+ if(tilt_r>pan_r){
+  r_end=tilt_r+1;
+ }
+ else{
+  r_end=pan_r+1;
+ }
+  
+
+  for(int i=1;i<=r_end;i++){
+
+    //Speed control-----------------------------------------------------
+    
+
+    if(i < tilt_r /8){
+
+      speed_tilt = map(i,1,tilt_r /8,1000,700);
+ 
+    }
+    else if(i> 7*tilt_r /8 ){
+      speed_tilt = map(i,7*tilt_r /8,tilt_r,700,1000);
+
+    }
+    else{
+      speed_tilt =800;
+
+    }
+
+    if(i < pan_r /8){
+
+      speed_pan = map(i,1,pan_r /8,1000,700);
+ 
+    }
+    else if(i> 7*pan_r /8 ){
+      speed_pan = map(i,7*pan_r /8,pan_r,700,1000);
+    }
+    else{
+      speed_pan =800;
+
+    }
+   
+
+     //---------------------------------------------------------
+ 
+
+     //speed_tilt=500;
+     //speed_pan=500;
+    
+    if(tilt_t<=tilt_r){
+
+        digitalWrite(T_stepPin1, HIGH);
+        delayMicroseconds(speed_tilt);
+        digitalWrite(T_stepPin1, LOW);
+        delayMicroseconds(speed_tilt);
+        count_T++;
+    }
+
+      if(pan_t<=pan_r){
+
+        digitalWrite(P_stepPin, HIGH);
+        delayMicroseconds(speed_pan);
+        digitalWrite(P_stepPin, LOW);
+        delayMicroseconds(speed_pan);
+        count_P++;
+
+      }
+   pan_t++;
+   tilt_t++;
+ 
+  }
+  EEPROM.put(0, count_P);
+  EEPROM.put(10, count_T);
+}
+
+
+//INTERRUPT
+
+void reset(){
+  long int pan;
+  long int tilt;
+ EEPROM.get(0, pan);
+ EEPROM.get(10, tilt);
+
+ rotate(200,200);
+}
+//------------------------------------------------------------------------------
+
+void setup() {
+
+  Serial.begin(9600);
+  // Declare pins as output:
+  //Pan motor
+  pinMode(P_stepPin, OUTPUT);
+  pinMode(P_dirPin, OUTPUT);
+
+  pinMode(T_stepPin1, OUTPUT);
+  pinMode(T_dirPin1, OUTPUT);
+
+   pinMode(buttonPin, INPUT_PULLUP);
+   attachInterrupt(digitalPinToInterrupt(buttonPin), reset, CHANGE);
+  // Set the spinning direction CW/CCW:
+  digitalWrite(P_dirPin, LOW);
+  digitalWrite(T_dirPin1, HIGH);
+
+
+  }
+
+void loop() {
+ 
+  float tilt_a;
+  float pan_a;
+  float tilt_n;
+  float pan_n;
+  int status=0;
+
+
+   if (Serial.available() > 0) {
+    String input = Serial.readStringUntil('\n'); // Read the entire line until a newline character
+
+    // Parse the input string into two integers
+    int spaceIndex = input.indexOf(' ');
+    if (spaceIndex != -1) {
+      String tilt_str = input.substring(0, spaceIndex);
+      String pan_str = input.substring(spaceIndex + 1);
+
+        tilt_a = tilt_str.toFloat();
+        pan_a = pan_str.toFloat();
+
+    if(tilt_a >0){
+       
+    digitalWrite(T_dirPin1, HIGH);
+    }
+
+    else{
+        digitalWrite(T_dirPin1, LOW);
+
+    }
+     if(pan_a >0){
+       
+    digitalWrite(P_dirPin, HIGH);
+     }
+    else{
+    digitalWrite(P_dirPin, LOW);
+    }
+    
+
+     tilt_n=fabs(tilt_a);
+     pan_n=fabs(pan_a);
+
+  rotate(tilt_n, pan_n);
+}
+
+}
+   }
+
+
+
+
+
+
+
