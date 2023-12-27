@@ -1,0 +1,141 @@
+import math
+import time
+import urllib.request
+import json
+import serial
+
+arduino_port = 'COM5'  # Example: 'COM3' for Windows, '/dev/ttyUSB0' for Linux
+baud_rate = 9600
+arduino_serial = serial.Serial(arduino_port, baud_rate, timeout=1)
+time.sleep(2)
+
+def calculate_distance(lat1, lon1, lat2, lon2):
+    # Convert latitude and longitude from degrees to radians
+    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
+
+    # Calculate differences in coordinates
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+
+    # Haversine formula
+    a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+    c = 2 * math.asin(min(1, math.sqrt(a)))
+
+    # Radius of Earth in kilometers
+    r = 6371
+    distance = r * c
+
+    return distance
+
+def calculate_azimuth(lat1, lon1, lat2, lon2):
+    # Convert latitude and longitude from degrees to radians
+    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
+
+    # Calculate differences in coordinates
+    dlon = lon2 - lon1
+
+    # Azimuth calculation
+    x = math.sin(dlon) * math.cos(lat2)
+    y = math.cos(lat1) * math.sin(lat2) - (math.sin(lat1) * math.cos(lat2) * math.cos(dlon))
+
+    azimuth = math.acos(y / math.sqrt(x**2 + y**2))
+
+    # Determine the correct quadrant for the azimuth
+    if math.sin(dlon) < 0:
+        azimuth = 2 * math.pi - azimuth
+
+    # Convert azimuth to degrees
+    azimuth = math.degrees(azimuth)
+
+    return azimuth
+
+def calculate_elevation(lat1, lon1, elev1, lat2, lon2, elev2):
+    # Calculate distance between two points
+    distance = calculate_distance(lat1, lon1, lat2, lon2)
+
+    # Apparent drop in height with distance
+    angular_drop = distance / (2 * 6371)
+
+    # Elevation angle calculation
+    elevation = (180 / math.pi) * ((elev2 - elev1) / (5280 * distance) - angular_drop)
+
+    return elevation
+
+my_lat = 7.2537   # Example latitude
+my_lon = 80.5914  # Example longitude
+my_alt = 489      # Example altitude (in meters)
+
+poll_rate = 1  # How often to update the position in seconds
+pan_old = 0.0
+tilt_old = 0.0
+pt = 0
+tt = 0
+
+try:
+    response = urllib.request.urlopen("http://api.open-notify.org/iss-now.json")
+    obj = json.loads(response.read())
+
+    # Extract ISS position
+    iss_lat = float(obj["iss_position"]["latitude"])
+    iss_lon = float(obj["iss_position"]["longitude"])
+    iss_alt = 433000  # ISS altitude in meters
+
+    distance = calculate_distance(my_lat, my_lon, iss_lat, iss_lon)
+    azimuth = calculate_azimuth(my_lat, my_lon, iss_lat, iss_lon)
+    elevation = calculate_elevation(my_lat, my_lon, my_alt, iss_lat, iss_lon, iss_alt)
+
+    tilt = elevation - tilt_old + tt
+    pan = azimuth - pan_old + pt
+
+    if tilt < 0.05:
+        tt = 0
+    if pan < 0.05:
+        pt = 0
+
+    print("Pan Angle (Azimuth):", pan)
+    print("Tilt Angle (Elevation):", tilt)
+    message = f"{-pan} {tilt}\n"
+    arduino_serial.write(message.encode())
+    tilt_old = elevation  # Using elevation as tilt for consistency
+    pan_old = azimuth
+
+    time.sleep(1 / poll_rate)  # Wait for the specified poll rate
+
+except Exception as e:
+    print("Error occurred:", e)
+
+time.sleep(5)
+while True:
+    try:
+        response = urllib.request.urlopen("http://api.open-notify.org/iss-now.json")
+        obj = json.loads(response.read())
+
+        # Extract ISS position
+        iss_lat = float(obj["iss_position"]["latitude"])
+        iss_lon = float(obj["iss_position"]["longitude"])
+        iss_alt = 433000  # ISS altitude in meters
+
+        distance = calculate_distance(my_lat, my_lon, iss_lat, iss_lon)
+        azimuth = calculate_azimuth(my_lat, my_lon, iss_lat, iss_lon)
+        elevation = calculate_elevation(my_lat, my_lon, my_alt, iss_lat, iss_lon, iss_alt)
+
+        tilt = elevation - tilt_old + tt
+        pan = azimuth - pan_old + pt
+
+        if tilt < 0.05:
+            tt = 0
+        if pan < 0.05:
+            pt = 0
+
+        print("Pan Angle (Azimuth):", pan)
+        print("Tilt Angle (Elevation):", tilt)
+        message = f"{-pan} {tilt}\n"
+        arduino_serial.write(message.encode())
+        tilt_old = elevation  # Using elevation as tilt for consistency
+        pan_old = azimuth
+
+        time.sleep(1 / poll_rate)  # Wait for the specified poll rate
+
+    except Exception as e:
+        print("Error occurred:", e)
+        break  # Exit the loop if there's an error (e.g., network issue)
